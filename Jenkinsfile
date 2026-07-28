@@ -20,7 +20,7 @@ pipeline {
                         sh """
                         export MAVEN_OPTS="-Xms512m -Xmx1024m -XX:MaxMetaspaceSize=512m"
                         
-                        mvn sonar:sonar \
+                        mvn verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
                         -Dsonar.host.url=https://sonarcloud.io \
                         -Dsonar.token=\$SONAR_TOKEN \
                         -Dsonar.organization=${SONAR_ORG} \
