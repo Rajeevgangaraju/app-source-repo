@@ -102,7 +102,7 @@ pipeline {
 
                 withCredentials([
                     string(
-                        credentialsId: 'git-pat',
+                        credentialsId: 'github creds',
                         variable: 'GIT_TOKEN'
                     )
                 ]) {
