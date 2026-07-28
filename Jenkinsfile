@@ -14,20 +14,25 @@ pipeline {
         
          stage('SonarCloud Scan Validation') {
             steps {
-                    withSonarQubeEnv('SonarCloud') {
-                        withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
-            
-                            sh """
-                            mvn verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-                            -Dsonar.host.url=https://sonarcloud.io \
-                            -Dsonar.token=\$SONAR_TOKEN \
-                            -Dsonar.organization=${SONAR_ORG} \
-                            -Dsonar.projectKey=${SONAR_PROJ}
-                            """
-                        }
+                withSonarQubeEnv('SonarCloud') { 
+                    withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
+                        
+                        sh """
+                        export MAVEN_OPTS="-Xms512m -Xmx1024m -XX:MaxMetaspaceSize=512m"
+                        
+                        mvn sonar:sonar \
+                        -Dsonar.host.url=https://sonarcloud.io \
+                        -Dsonar.token=\$SONAR_TOKEN \
+                        -Dsonar.organization=${SONAR_ORG} \
+                        -Dsonar.projectKey=${SONAR_PROJ} \
+                        -Dsonar.workers=1 \
+                        -Dsonar.scanAllFiles=false \
+                        -Dsonar.java.binaries=target/classes
+                        """
                     }
                 }
             }
+        }
 
         
         stage('Verify Quality Gate') {
