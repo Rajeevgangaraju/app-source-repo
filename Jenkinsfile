@@ -1,111 +1,143 @@
 pipeline {
     agent any
+
     environment {
-        DOCKER_IMAGE     = 'rajeevgangaraju/simple-app'
-        SONAR_ORG        = 'rajeevgangaraju'
-        SONAR_PROJ       = 'simple-app'
-        JAVA_TOOL_OPTIONS = "-Xms512m -Xmx1024m -XX:MaxMetaspaceSize=512m"
+        DOCKER_IMAGE = "rajeevgangaraju/simple-app"
+        SONAR_ORG    = "rajeevgangaraju"
+        SONAR_PROJ   = "simple-app"
     }
 
     stages {
-        stage('Maven Compile & Build') {
-            steps { sh 'mvn clean package -DskipTests' }
-        }
-        
-         stage('SonarCloud Scan Validation') {
+
+        stage('Environment Check') {
             steps {
-                withSonarQubeEnv('SonarCloud') { 
-                    withCredentials([string(credentialsId: 'sonarcloud-token', variable: 'SONAR_TOKEN')]) {
-                        
+                sh '''
+                    java -version
+                    javac -version
+                    mvn -version
+                '''
+            }
+        }
+
+        stage('Maven Compile & Build') {
+            steps {
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('SonarCloud Scan Validation') {
+            steps {
+                withSonarQubeEnv('SonarCloud') {
+                    withCredentials([
+                        string(
+                            credentialsId: 'sonarcloud-token',
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+
                         sh """
-                        export MAVEN_OPTS="-Xms512m -Xmx1024m -XX:MaxMetaspaceSize=512m"
-                        
-                        mvn sonar:sonar \
+                        mvn verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
                         -Dsonar.host.url=https://sonarcloud.io \
                         -Dsonar.token=\$SONAR_TOKEN \
                         -Dsonar.organization=${SONAR_ORG} \
-                        -Dsonar.projectKey=${SONAR_PROJ} \
-                        -Dsonar.workers=1 \
-                        -Dsonar.scanAllFiles=false \
-                        -Dsonar.java.binaries=target/classes
+                        -Dsonar.projectKey=${SONAR_PROJ}
                         """
                     }
                 }
             }
         }
 
-        
         stage('Verify Quality Gate') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
+                timeout(time: 10, unit: 'MINUTES') {
                     script {
                         def qg = waitForQualityGate()
-                        if ( qg.status != 'NONE' && qg.status !='OK') { 
-                            error "Pipeline stopped: Quality Gate failed: ${qg.status}" 
-                        } else {
-                            echo "Quality Gate check cleared with status: ${qg.status}"
+
+                        if (qg.status != 'OK') {
+                            error "Quality Gate failed: ${qg.status}"
                         }
+
+                        echo "Quality Gate Passed"
                     }
                 }
             }
         }
 
         stage('Execute Unit Tests') {
-            steps { sh 'mvn test' }
-        }
-        
-        stage('Package & Push Container') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-hub-creds',
-                    usernameVariable: 'DOCKER_USERNAME',
-                    passwordVariable: 'DOCKER_PASSWORD'
-                )]) {
-        
+                sh 'mvn test'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh """
+                docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
+                """
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'docker-hub-creds',
+                        usernameVariable: 'DOCKER_USERNAME',
+                        passwordVariable: 'DOCKER_PASSWORD'
+                    )
+                ]) {
+
                     sh """
-                    echo "Docker Image: ${DOCKER_IMAGE}"
-                    echo "Build Number: ${BUILD_NUMBER}"
-        
-                    echo "\$DOCKER_PASSWORD" | docker login -u "\$DOCKER_USERNAME" --password-stdin
-        
-                    docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
-        
+                    echo \$DOCKER_PASSWORD | docker login -u \$DOCKER_USERNAME --password-stdin
+
                     docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
-        
-                    docker rmi ${DOCKER_IMAGE}:${BUILD_NUMBER} || true
                     """
                 }
             }
         }
 
-        stage('Manifest GitOps Delivery Loop') {
+        stage('Update GitOps Repository') {
             steps {
-                script {
-                    withCredentials([string(credentialsId: 'git-pat', variable: 'GIT_TOKEN')]) {
-        
-                        sh """
-                        git config --global user.email "jenkins-bot@poc.com"
-                        git config --global user.name "Jenkins GitOps Engine"
-        
-                        rm -rf target-manifests
-        
-                        git clone https://${GIT_TOKEN}@github.com/rajeevgangaraju/app-manifests-repo.git target-manifests
-        
-                        cd target-manifests
-        
-                        # ✅ FIX: Set remote with PAT for push
-                        git remote set-url origin https://${GIT_TOKEN}@github.com/rajeevgangaraju/app-manifests-repo.git
-        
-                        sed -i "s|image: .*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|" deployment.yaml
-        
-                        git add .
-                        git commit -m "Update image to build ${BUILD_NUMBER}" || echo "No changes"
-        
-                        git push origin main
-                        """
-                    }
+
+                withCredentials([
+                    string(
+                        credentialsId: 'git-pat',
+                        variable: 'GIT_TOKEN'
+                    )
+                ]) {
+
+                    sh """
+                    rm -rf manifests
+
+                    git clone https://\$GIT_TOKEN@github.com/rajeevgangaraju/app-manifests-repo.git manifests
+
+                    cd manifests
+
+                    git config user.email "jenkins-bot@poc.com"
+                    git config user.name "Jenkins"
+
+                    sed -i 's|image: .*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|' deployment.yaml
+
+                    git add deployment.yaml
+
+                    git commit -m "Updated image tag to ${BUILD_NUMBER}" || true
+
+                    git push origin main
+                    """
                 }
             }
+        }
+    }
+
+    post {
+
+        success {
+            echo "Pipeline Completed Successfully"
+        }
+
+        failure {
+            echo "Pipeline Failed"
         }
     }
 }
