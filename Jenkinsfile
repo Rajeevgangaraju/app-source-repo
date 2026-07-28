@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "rajeevgangaraju/simple-app"
         SONAR_ORG    = "rajeevgangaraju"
-        SONAR_PROJ   = "simple-app"
+        SONAR_PROJ   = "Rajeevgangaraju_app-source-repo"
     }
 
     stages {
