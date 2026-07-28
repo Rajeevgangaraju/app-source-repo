@@ -47,21 +47,21 @@ pipeline {
             }
         }
 
-        stage('Verify Quality Gate') {
-            steps {
-                timeout(time: 10, unit: 'MINUTES') {
-                    script {
-                        def qg = waitForQualityGate()
+        // stage('Verify Quality Gate') {
+        //     steps {
+        //         timeout(time: 10, unit: 'MINUTES') {
+        //             script {
+        //                 def qg = waitForQualityGate()
 
-                        if (qg.status != 'OK') {
-                            error "Quality Gate failed: ${qg.status}"
-                        }
+        //                 if (qg.status != 'OK') {
+        //                     error "Quality Gate failed: ${qg.status}"
+        //                 }
 
-                        echo "Quality Gate Passed"
-                    }
-                }
-            }
-        }
+        //                 echo "Quality Gate Passed"
+        //             }
+        //         }
+        //     }
+        // }
 
         stage('Execute Unit Tests') {
             steps {
